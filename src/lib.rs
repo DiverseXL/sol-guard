@@ -55,6 +55,26 @@ mod component {
                 .json::<serde_json::Value>()
                 .map_err(|e| e.to_string())
         }
+
+        fn get_token_largest_accounts(
+            &self,
+            rpc_url: &str,
+            mint: &str,
+        ) -> Result<serde_json::Value, String> {
+            let body = serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getTokenLargestAccounts",
+                "params": [mint]
+            });
+            waki::Client::new()
+                .post(rpc_url)
+                .json(&body)
+                .send()
+                .map_err(|e| e.to_string())?
+                .json::<serde_json::Value>()
+                .map_err(|e| e.to_string())
+        }
     }
 
     #[derive(serde::Deserialize)]
@@ -80,8 +100,10 @@ mod component {
 
         fn description() -> String {
             "Assess risk for a Solana token mint by analysing on-chain \
-             mint/freeze authorities and Token-2022 extensions. \
-             Returns a GREEN/AMBER/RED verdict with human-readable reasons."
+             mint/freeze authorities, Token-2022 extensions, and holder \
+             concentration (top-10 share of supply). Returns a chat-ready \
+             verdict: emoji + score/100 + confidence, up to 5 short \
+             reasons, and one actionable advice line."
                 .to_string()
         }
 
@@ -164,12 +186,7 @@ mod component {
         }
     }
 
-    fn emit(
-        action: PluginAction,
-        outcome: PluginOutcome,
-        message: &str,
-        findings: Option<usize>,
-    ) {
+    fn emit(action: PluginAction, outcome: PluginOutcome, message: &str, findings: Option<usize>) {
         let attrs = findings.map(|n| format!("{{\"findings\":{n}}}"));
         log_record(
             LogLevel::Info,
