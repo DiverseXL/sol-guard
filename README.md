@@ -307,6 +307,131 @@ Holder-concentration cases cover both thresholds (RED ≥ 50%, AMBER
 honesty path (RPC failure, error object, missing supply) that drops the
 signal and lowers confidence.
 
+## Quick Setup
+
+Follow this exactly and you'll have `sol-guard` running against a live
+ZeroClaw agent in under an hour. Every step here was hit and resolved
+during actual development — this isn't a generic guide, it's the real path.
+
+### 1. Toolchain
+
+```bash
+# Install Rust (rustup, not your OS package manager)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh   # macOS/Linux
+# Windows: download rustup-init.exe from https://rustup.rs
+
+rustup target add wasm32-wasip2
+```
+
+**Windows note:** if the installer asks about a host triple, use
+`x86_64-pc-windows-gnu` (skip the ~4 GB Visual Studio Build Tools
+requirement of the MSVC toolchain). You'll also need `dlltool.exe` for
+this — install MSYS2 (`winget install MSYS2.MSYS2`), then from an "MSYS2
+MinGW 64-bit" shell:
+
+```bash
+pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-binutils
+```
+
+Add `C:\msys64\mingw64\bin` to your PATH.
+
+### 2. Build the plugin
+
+```bash
+git clone https://github.com/DiverseXL/sol-guard.git
+cd sol-guard
+cargo test                                     # 38 tests, no wasm needed, no network
+cargo build --target wasm32-wasip2 --release   # produces target/wasm32-wasip2/release/sol_guard.wasm
+```
+
+### 3. Build a plugin-capable ZeroClaw host
+
+**Critical:** ZeroClaw's official release binaries do **not** include WASM
+plugin support (confirmed by inspecting `Cargo.toml` — `plugins-wasm` is
+not a default feature). You must build ZeroClaw from source with it
+explicitly enabled:
+
+```bash
+git clone https://github.com/zeroclaw-labs/zeroclaw.git
+cd zeroclaw
+cargo build --release --features plugins-wasm-cranelift
+```
+
+This is a large build (expect 20–90+ minutes depending on your machine).
+Use the resulting binary at `target/release/zeroclaw` (or `zeroclaw.exe`
+on Windows) for every command below — not a `zeroclaw` you may already
+have on PATH from a prior release install.
+
+### 4. Install the plugin
+
+```bash
+mkdir -p ~/.zeroclaw/plugins/sol-guard
+cp manifest.toml ~/.zeroclaw/plugins/sol-guard/
+cp target/wasm32-wasip2/release/sol_guard.wasm ~/.zeroclaw/plugins/sol-guard/
+
+zeroclaw config set plugins.enabled true
+zeroclaw config set plugins.auto_discover true
+```
+
+### 5. Set up an agent + Telegram channel
+
+```bash
+zeroclaw quickstart
+```
+
+Walk through the wizard: pick your model provider, a risk profile
+(`balanced` is a sane default), memory backend (`sqlite` is simplest),
+and add a **Telegram** channel — you'll need a bot token from
+[@BotFather](https://t.me/BotFather) (`/newbot`, follow the prompts).
+
+Attach the plugin to your agent's skill bundle:
+
+```bash
+zeroclaw skills bundle add sol-guard-tools
+zeroclaw skills install ~/.zeroclaw/plugins/sol-guard --bundle sol-guard-tools
+zeroclaw config set agents.<your-agent-alias>.skill_bundles '["sol-guard-tools"]'
+```
+
+### 6. Run it — as a daemon, not `agent`
+
+```bash
+zeroclaw daemon
+```
+
+**Important:** `zeroclaw agent -a <alias>` (interactive REPL mode)
+registers the Telegram channel binding but never actually polls Telegram
+for messages — only `zeroclaw daemon` runs the real message poller.
+Confirm it worked by checking the startup log for:
+
+```
+"Registered WASM plugin tools" discovered:1, registered:1
+```
+
+### 7. Test it
+
+DM your bot on Telegram:
+
+```
+Is this token safe to buy? 2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo
+```
+
+(PayPal's real PYUSD mint — expect a RED verdict citing retained mint/freeze
+authority and a permanent delegate.)
+
+### Common pitfalls
+
+- **Two processes polling Telegram at once** silently break message delivery
+  (Telegram allows only one active poller per bot token). If messages stop
+  arriving, run `Get-Process | Where-Object { $_.Path -like "*zeroclaw*" }`
+  (or `ps aux | grep zeroclaw`) and kill any duplicates.
+- **`config get`/`config set` on Windows PATH issues**: a fresh terminal
+  window won't see `cargo`/`rustup`/`zeroclaw` on PATH immediately after
+  install — close and reopen your terminal, or manually
+  `$env:Path += ";$env:USERPROFILE\.cargo\bin"` for the current session.
+- **Negative OpenAI credit balance** silently breaks agent replies with no
+  obvious error in ZeroClaw's own logs — check your provider's billing
+  dashboard directly if the bot goes quiet.
+
 ## Building
 
 ```bash
