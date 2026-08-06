@@ -143,7 +143,7 @@ without having sent it first — the user must never wait in silence after
 asking about their money.
 
 The agent-facing playbook lives in
-[`skills/sol-guard-usage/SKILL.md`](../../skills/sol-guard-usage/SKILL.md) —
+[`skills/sol-guard-usage/SKILL.md`](https://github.com/DiverseXL/sol-guard/blob/main/skills/sol-guard-usage/SKILL.md) —
 when to call, the **mandatory acknowledgment (Hard Rule #1)**, the exact
 message sequence, example triggers, good vs bad usage, and how to act on
 each verdict.
