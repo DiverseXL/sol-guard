@@ -265,25 +265,18 @@ echoed back to the LLM or logged.
 
 ## What fought me on wasm32-wasip2
 
-- `solana-sdk`/`solana-client` do not build for `wasm32-wasip2` inside a WIT
-  component; this plugin hand-parses the RPC's `jsonParsed` response
-  directly against `serde_json::Value` instead. Field names
-  (`mintAuthority`, `freezeAuthority`, `isInitialized`, the `extensions`
-  array) were confirmed against Anza's actual
-  `account-decoder/src/parse_token.rs` source, not guessed from
-  documentation, and cross-checked against a live `getAccountInfo` call
-  against PYUSD's real mainnet mint.
-- The exact serde tag shape of Anza's internal `UiExtension` enum isn't
-  documented publicly; `extract_extension_names` in `guard.rs` tolerates
-  three plausible shapes (bare string, externally-tagged, internally-tagged)
-  defensively. The live PYUSD call confirmed the internally-tagged shape
-  (`{"extension": "name", "state": {...}}`) is what production actually
-  returns.
-- HTTP must go through `waki` (blocking `wasi:http`), not `reqwest` —
-  `reqwest`/`tokio` don't target `wasm32-wasip2` inside this sandboxed
-  component model. `waki` is gated behind
-  `[target.'cfg(target_family = "wasm")'.dependencies]` so the host test
-  build never tries to compile it.
+- **WASM Component Boundary Constraints**: While modular Solana crates can compile for `wasm32-wasip2`, the real friction is at the WASM component boundary (using `wit-bindgen` and managing host capability grants rather than just compiler targets). Consequently:
+  - `solana-sdk`/`solana-client` do not build for `wasm32-wasip2` inside a WIT component; this plugin hand-parses the RPC's `jsonParsed` response directly against `serde_json::Value` instead. Field names (`mintAuthority`, `freezeAuthority`, `isInitialized`, the `extensions` array) were confirmed against Anza's actual `account-decoder/src/parse_token.rs` source, not guessed from documentation, and cross-checked against a live `getAccountInfo` call against PYUSD's real mainnet mint.
+  - HTTP must go through `waki` (blocking `wasi:http`), not `reqwest` — `reqwest`/`tokio` don't target `wasm32-wasip2` inside this sandboxed component model. `waki` is gated behind `[target.'cfg(target_family = "wasm")'.dependencies]` so the host test build never tries to compile it.
+  - This architecture enforces a clean pure-core/thin-shim split, separating the domain assessment logic from the WASM environment dependencies.
+- **Experimental `wit/v0` Host ABI**: The `wit/v0` standard is experimental, has no `.frozen` marker, and the ABI can move out from under the build. This plugin is pinned to the `wit/v0` assumptions used during development and may require a rebuild if the host ABI is updated.
+- **Verified Trap Mitigations**:
+  - **No blockhash expiry risk**: The plugin is `T0` (read-only) and does not sign or submit transactions, eliminating transaction timing issues.
+  - **Context window protection**: Output is strictly formatted to ~150–220 tokens to avoid LLM context flooding.
+  - **No hardcoded secrets**: The RPC URL and optional API keys are obtained purely via `config_read` at runtime.
+  - **No Oracle dependencies**: Scans are completed entirely without dependencies on Pyth or external price feeds.
+  - **On-demand execution**: Core checks run strictly on-demand, which naturally lends itself to polling/monitoring patterns if added in the future.
+- The exact serde tag shape of Anza's internal `UiExtension` enum isn't documented publicly; `extract_extension_names` in `guard.rs` tolerates three plausible shapes (bare string, externally-tagged, internally-tagged) defensively. The live PYUSD call confirmed the internally-tagged shape (`{"extension": "name", "state": {...}}`) is what production actually returns.
 
 ## What I'd build next
 
